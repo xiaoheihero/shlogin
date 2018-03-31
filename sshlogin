@@ -1,0 +1,239 @@
+#!/bin/bash
+set -e
+#set -x
+
+DIR="$(cd "$( dirname "$0" )" && pwd)"
+SSH_OPT="-t -t -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oLogLevel=ERROR"
+TRUE=0
+FALSE=1
+USER_IP_ARRAY=(
+##shell record begin##
+#root@1.1.1.1^^^123456
+##shell record end##
+)
+RECORD_FORMAT="username@ipv4^^^passwd~~~alias"
+SSH_FORMAT="username@ipv4"
+FIND_RECORD=""
+
+function checkIPv4Valid(){
+    IP=$1
+    if [[ ${IP} =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+        FIELD1=$(echo ${IP}|cut -d. -f1)
+        FIELD2=$(echo ${IP}|cut -d. -f2)
+        FIELD3=$(echo ${IP}|cut -d. -f3)
+        FIELD4=$(echo ${IP}|cut -d. -f4)
+        if [ ${FIELD1} -le 255 -a ${FIELD2} -le 255 -a ${FIELD3} -le 255 -a ${FIELD4} -le 255 ]; then
+            return ${TRUE}
+        else
+            echo "${IP} not a ipv4!"
+            return ${FALSE}
+        fi
+    else
+        echo "${IP} not a ipv4!"
+        return ${FALSE}
+    fi
+}
+
+function ssh_host_valid(){
+    if [ "${1}" == "${1#*@}" ]; then
+        echo "$1 is not a SSH Format: ${SSH_FORMAT}"
+        return ${FALSE}
+    fi
+    #TODO check username
+
+    if checkIPv4Valid "${1#*@}"; then
+        return ${TRUE}
+    fi
+    echo "${1} is not a SSH Format: ${SSH_FORMAT}"
+    return ${FALSE}
+}
+
+
+function list(){
+    echo "所有保存记录:"
+    for item in ${USER_IP_ARRAY[@]};do 
+        echo $item
+    done
+}
+
+function searchIP(){
+    if [ "" == "$1" ]; then
+        usage
+        echo "参数错误";exit 1
+    else
+        isFind=0
+        for item in ${USER_IP_ARRAY[@]}; do
+            host_passwd_alias=${item#*@}
+            host=${host_passwd_alias%^^^*}
+            if [ "$1" == ${host} ]; then
+                echo ${item}
+                FIND_RECORD=${item}
+                isFind=1
+                # no break for find all match
+            fi
+        done
+        if [ ${isFind} -eq 0 ]; then
+            echo "未记录"; exit 2
+        fi
+    fi
+}
+
+function searchSSHFormat(){
+    if [[ "" == "$1" ]]; then
+        usage
+        echo "参数错误";exit 3
+    else
+        isFind=0
+        for item in ${USER_IP_ARRAY[@]}; do
+            if [ "$1" == ${item%^^^*} ]; then
+                echo ${item}
+                FIND_RECORD=${item}
+                isFind=1
+            fi
+        done
+        if [ ${isFind} -eq 0 ]; then
+            echo "未记录"; exit 4
+        fi
+    fi
+}
+
+function searchAlias(){
+    if [[ "" == "$1" ]]; then
+        usage
+        echo "参数错误";exit 3
+    else
+        isFind=0
+        for item in ${USER_IP_ARRAY[@]}; do
+            if [ "$1" == ${item#*~~~} ]; then
+                echo ${item}
+                FIND_RECORD=${item}
+                exit 0
+            fi
+        done
+        echo "未记录"; exit 4
+    fi
+}
+function search() {
+    if ssh_host_valid $1; then
+        searchSSHFormat $1
+        return
+    fi
+    
+    echo "WARNING: list all match, but use the last find when login!"
+
+    if checkIPv4Valid $1 ; then
+        searchIP $1
+        return
+    fi
+}
+
+function usage(){
+  echo "-----------author:xiaohei w0311-------------------------"
+  echo "-- usage: ./shlogin [ user@ip_addr |ip_addr ]         --"
+  echo "-- usage: ./shlogin { --help | -h | help }            --"
+  echo "-- usage: ./shlogin record user@ip_addr password      --"
+  echo "-- usage: ./shlogin alias [user@]ip_addr aliasname    --"
+  echo "-- usage: ./shlogin list                              --"
+  echo "-- usage: ./shlogin search [ ip_addr | user@ip_addr ] --"
+  echo "-- usage: ./shlogin searchAlias aliasname             --"
+  echo "--------------------------------------------------------"
+}
+
+function login_from_record(){
+    if [ "$#" -ge "2" ]; then
+        ssh ${SSH_OPT} $@
+    else 
+        search $1
+        sshpass -p ${FIND_RECORD#*^^^} ssh ${SSH_OPT} ${FIND_RECORD%^^^*}
+    fi
+}
+
+function record(){
+    if ssh_host_valid $1; then
+        echo 
+    else
+        echo "参数不合法: $1"; exit 9
+    fi
+    newitem="$1^^^$2"
+    for item in ${USER_IP_ARRAY[@]}; do
+        if [[ "${item%^^^*}" == "$1" && "${item#*^^^}" == "$2" ]] ; then
+            echo "已存在";exit 10
+        fi
+        if [[ "${item%^^^*}" == "$1" && "${item#*^^^}" != "$2" ]] ; then
+            echo ${item}
+            read -p  "已存在但密码不一致，是否需要更新[Y/N]:" choose
+            case $choose in
+                "Y" | "y")
+                    sudo sed -i "/$1/c  \"${newitem}\"" $DIR/shlogin
+                    exit 0
+                    ;;
+                    *)
+                    exit 11
+                    ;;
+            esac 
+        fi
+    done
+    sudo sed -i "/^##shell record ##/a  \"${newitem}\"" $DIR/shlogin
+    $DIR/shlogin list
+}
+function alias(){
+    record=$(search $1)
+    if [ "${record}" == "${record#*~~~}" ]; then
+        sudo sed -i "/$record/c  \"$record~~~$2\"" $DIR/shlogin
+        $DIR/shlogin list
+    else
+        read -p  "已经存在别名:${record#*~~~},是否修改[Y/N]:" choose
+        case $choose in
+            "Y" | "y")
+                sudo sed -i "/${record}/c  \"${record%~~~*}~~~$2\"" $DIR/shlogin
+                exit 0
+                ;;
+            *)
+                exit 11
+                ;;
+        esac 
+    fi
+}
+function main(){
+  if [ "$#" == "0" ]; then
+    login_choose
+  fi
+  case $1 in 
+    "-h")
+        usage
+        ;;
+    "help")
+        usage
+        ;;
+    "--help")
+        usage
+        ;;
+    "record")
+        if [ "$#" == "3" ]; then
+          record $2 $3
+        else
+          usage
+        fi
+        ;;
+    "list")
+        list
+        ;;
+    "alias")
+        if [ "$#" == "3" ]; then
+            alias $2 $3
+        else
+            usage
+        fi
+        ;;
+    "search")
+        search $2
+        ;;
+    "searchAlias")
+        searchAlias $2
+        ;;
+    *)
+        login_from_record $@
+        ;;
+  esac
+}
+main $@
