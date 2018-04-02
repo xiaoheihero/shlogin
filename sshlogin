@@ -128,23 +128,23 @@ function search() {
 }
 
 function usage(){
-  echo "-----------author:xiaohei w0311-------------------------"
-  echo "-- usage: ./shlogin [ user@ip_addr |ip_addr ]         --"
-  echo "-- usage: ./shlogin { --help | -h | help }            --"
-  echo "-- usage: ./shlogin record user@ip_addr password      --"
-  echo "-- usage: ./shlogin alias [user@]ip_addr aliasname    --"
-  echo "-- usage: ./shlogin list                              --"
-  echo "-- usage: ./shlogin search [ ip_addr | user@ip_addr ] --"
-  echo "-- usage: ./shlogin searchAlias aliasname             --"
-  echo "--------------------------------------------------------"
+    echo "-----------author:xiaohei-------------------------------"
+    echo "-- usage: ./shlogin [ user@ip_addr |ip_addr ]         --"
+    echo "-- usage: ./shlogin { --help | -h | help }            --"
+    echo "-- usage: ./shlogin record user@ip_addr password      --"
+    echo "-- usage: ./shlogin alias [user@]ip_addr aliasname    --"
+    echo "-- usage: ./shlogin list                              --"
+    echo "-- usage: ./shlogin search [ ip_addr | user@ip_addr ] --"
+    echo "-- usage: ./shlogin searchAlias aliasname             --"
+    echo "--------------------------------------------------------"
 }
 
 function login_from_record(){
-    if [ "$#" -ge "2" ]; then
-        ssh ${SSH_OPT} $@
-    else 
-        search $1
-        sshpass -p ${FIND_RECORD#*^^^} ssh ${SSH_OPT} ${FIND_RECORD%^^^*}
+    search $1
+    if [ !"" == ${FIND_RECORD} ]; then
+      sshpass -p ${FIND_RECORD#*^^^} ssh ${SSH_OPT} ${FIND_RECORD%^^^*}
+    else
+      echo "not found in record: $1"
     fi
 }
 
@@ -199,13 +199,7 @@ function main(){
     login_choose
   fi
   case $1 in 
-    "-h")
-        usage
-        ;;
-    "help")
-        usage
-        ;;
-    "--help")
+    "-h" | "help" | "--help")
         usage
         ;;
     "record")
@@ -232,7 +226,11 @@ function main(){
         searchAlias $2
         ;;
     *)
-        login_from_record $@
+        if [ "$#" == "3" ]; then
+            login_from_record $@
+        else
+            usage
+        fi
         ;;
   esac
 }
